@@ -1,9 +1,24 @@
-
+import math
+import pickle
 class N_gram():
     def __init__(self, N):
         self.N = N
+        self.threshold = -10
         self.path = 'data/data.train'
         self.data = self.make_data_list()
+        self.dictionary = self.make_dictionary()
+        self.PronunciationConfusion_list = self.Confusion_SimilarPronunciation()
+        self.ShapeConfusion_list = self.Confusion_SimilarShape()
+
+
+    def make_dictionary(self):
+        import os
+        if os.path.exists('data/checkpoint.pk'):
+            with open('data/checkpoint.pk', 'rb') as f:
+                data = pickle.load(f)
+            return data
+        else:
+            print('WARNING:YOU DO NOT HAVE A PRETRAINED MODEL PREPARED AND IF YOU WANT TO CONTINUE, PLEASE USE PROCESS FUNCTION!!!')
 
     def count_gram(self):
         l4d = []
@@ -38,8 +53,6 @@ class N_gram():
                         if k[1:] == j:
                             dic_new[j] += 1
                 num +=1
-                if num%1000 == 0:
-                    print('在'+str(i+1)+'gram下已经处理了'+str(num)+'个')
 
             dic_after_ad.append(dic_new)
             print('已经完成'+str(i+1)+'gram')
@@ -80,7 +93,6 @@ class N_gram():
                             else:
                                 d4gram[len(gram_sen)-1][gram_sen] += 1
 
-                    # gram_sen =sen[0][i:] if self.N >= len(sen[0])-i else sen[0][i:i+self.N+1]
                     gram_layer = d
                     for char in gram_sen:
                         if char not in gram_layer:
@@ -90,8 +102,6 @@ class N_gram():
         print('计数部分结束')
         self.tree_function(d,d4gram,char)
         print('d4gram结束')
-        # if 's我' in d4gram[1]:
-        #     print('1111111111111111111111111111111111111111111')
         return d4gram,d
 
 
@@ -132,10 +142,8 @@ class N_gram():
         u = [{} for _ in range(self.N)]
         sum_0 = sum([x[1] for x in l[0].items()]) - l[0]['s']
         for n in range(self.N):
-            # Sum_0 = sum([[x[1] for x in l[0].items()]]) - l[0]['s']
             for key, val in l[n].items():
                 if n == 0:
-                    # Sum = sum([x[1] for x in l[n].items() if x[0] != 's'])
                     Sum = sum_0
                 else:
                     char = key[:-1]
@@ -154,9 +162,6 @@ class N_gram():
     def process_b(self, l, D, discount,Sum_0,d):
         b = [{} for _ in range(self.N - 1)]
         print('in the b process'+str(len([x for x in l[0].items() if x[1] == 1])))
-        # b_ = (D[0][0] * len([x for x in l[0].items() if x[1] == 1]) + D[0][1] * len(
-        #     [x for x in l[0].items() if x[1] == 2]) + D[0][2] * len([x for x in l[0].items() if x[1] == 3])) / sum(
-        #     [x[1] for x in l[0].items() if x[0] != 's'])
         b_ = (D[0][0] *  discount[0][0]+ D[0][1] * discount[0][1] + D[0][2] * discount[0][2]) / Sum_0
 
         for n in range(self.N - 1):
@@ -180,12 +185,6 @@ class N_gram():
 
                 p1 = D[n+1][0] * num[0]+ D[n+1][1]*num[1] + D[n+1][2]*num[2]
                 p2 = Sum
-
-
-                # p1 = D[n + 1][0] * len([x for x in l[n + 1].items() if x[0][:-1] == key and x[1] == 1]) + \
-                #      D[n + 1][1] * len([x for x in l[n + 1].items() if x[0][:-1] == key and x[1] == 2]) + \
-                #      D[n + 1][2] * len([x for x in l[n + 1].items() if x[0][:-1] == key and x[1] == 3])
-                # p2 = sum([x[1] for x in l[n + 1].items() if x[0][:-1] == key])
                 b[n][key] = p1 / p2
 
         return b,b_
@@ -196,7 +195,8 @@ class N_gram():
         else:
             return u[len(w)-1][w] + b[0][w[0]]*self.process_p(u,b,w[1:],b_,length)
 
-    def PROCESS(self,l):
+    def PROCESS(self):
+        l = self.make_data_list()
         after_adjust,d = self.count_and_adjusting(l)
         after_discount,discount = self.discount(after_adjust)
         print('discount 结束')
@@ -206,13 +206,12 @@ class N_gram():
         print('计算B结束')
         final = [{} for _ in range(self.N)]
         length = len(after_adjust[0])
-        print('e' in U[0])
-        print('e' in B[0] )
         for n in range(self.N):
             for key in after_adjust[n]:
                 print(key)
                 try:
-                    final[n][key] = self.process_p(U,B,key,b_,length)
+                    score = math.log10(self.process_p(U,B,key,b_,length))
+                    final[n][key] = score  if score>-1000 else -1000
                 except KeyError:
                     continue
         return final
@@ -226,30 +225,111 @@ class N_gram():
 
         return l
 
+    def Confusion_SimilarPronunciation(self):
+        import os
+        if os.path.exists('data/Confusion_SimilarPronunciation.pk'):
+            with open('data/Confusion_SimilarPronunciation.pk','rb') as f:
+                data = pickle.load(f)
+            return data
+
+    def Confusion_SimilarShape(self):
+        import os
+        if os.path.exists('data/Confusion_SimilarShape.pk'):
+            with open('data/Confusion_SimilarShape.pk','rb') as f:
+                data = pickle.load(f)
+            return data
+
+    def correct_single_sen_threshold(self,w):
+        sen = w[:-1]
+        max_score = -1000
+        max_score_sen = ''
+        for key, val in self.dictionary[len(sen)].items():
+            if key[:-1] == sen and val>max_score:
+                max_score = val
+                max_score_sen = key
+        return max_score_sen[-1] if max_score_sen != '' else ''
+
+
+    def correct_single_sen_brute_froce(self,w):
+        candidate_for_each_word = []
+        for i in range(len(w)):
+            candidate = []
+            if w[i] in self.PronunciationConfusion_list:
+                word_list_P = []
+                for index in self.PronunciationConfusion_list[w[i]]:
+                    word_list_P += index
+                candidate += word_list_P
+            if w[i] in self.ShapeConfusion_list:
+                word_list_S = []
+                for index in self.ShapeConfusion_list[w[i]]:
+                    word_list_S += index
+                candidate += word_list_S
+            for j in candidate:
+                if j not in self.dictionary[0]:
+                    candidate.remove(j)
+                    continue
+                if i == 0:
+                    if j+w[i+1] not in self.dictionary[1]:
+                        candidate.remove(j)
+                        continue
+                if i == len(w) - 1:
+                    if w[i-1] + j not in self.dictionary[1]:
+                        candidate.remove(j)
+                        continue
+                if i != 0 and i != len(w) -1:
+                    if w[i-1] + j not in self.dictionary[1] and j+w[i+1] not in self.dictionary[1]:
+                        candidate.remove(j)
+                        continue
+
+            candidate_for_each_word.append(candidate)
+
+        return candidate_for_each_word
+
+    def exam_single_sen(self,w):
+        # Sen_Score = 0
+        w = 's'+w+'~'
+        after_correct = ''
+        for i in range(1,len(w)+1):
+            sen = w[:i] if i<self.N else w[i-self.N:i]
+            score = self.dictionary[len(sen)-1][sen] if sen in self.dictionary[len(sen)-1] else -1000
+            if score < self.threshold:
+                new_word = self.correct_single_sen_threshold(sen)
+                if new_word != '':
+                    # w_list = list(w)
+                    # w_list[i] = new_word
+                    # w = ''.join(w_list)
+                    w = w[:i-1]+new_word+w[i:]
+            else:
+                new_word = sen[-1]
+            # Sen_Score += score
+            after_correct += new_word
+        return after_correct[1:-1]
+
 def pack_up(data):
     import pickle
-    with open('final.pk', 'wb') as f:
+    with open('data/data.train', 'wb') as f:
         pickle.dump(data, f)
 
 
 def loading():
     import pickle
-    with open('final.pk', 'rb') as f:
+    with open('data/checkpoint.pk', 'rb') as f:
         data = pickle.load(f)
     return data
 
+# test_ = [['s我~'],
+#          ['s你我~'],
+#          ['s他~'],
+#          ['s我~'],
+#          ['s你~']]
+
 
 if __name__ == '__main__':
-    M = N_gram(2)
-    # test = [['abcde','abedf'],['efbcd','aefbc']]
-    test_ = [['s我~'],
-             ['s你我~'],
-             ['s他~'],
-             ['s我~'],
-             ['s你~']]
-    #
-    l = M.make_data_list()
-    output = M.PROCESS(test_)
-    # pack_up(output)
-    # out = loading()
+    M = N_gram(5)
+
+    test = '今天天汽不好。'
+    # print(M.exam_single_sen(test))
+    # print(M.PronunciationConfusion_list)
+    l = M.exam_single_sen(test)
+    print(l)
     print(1)
