@@ -332,4 +332,3 @@ if __name__ == '__main__':
     # print(M.PronunciationConfusion_list)
     l = M.exam_single_sen(test)
     print(l)
-    print(1)
